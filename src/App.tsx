@@ -6,6 +6,7 @@ import MemeCanvas from './components/MemeCanvas';
 import { LOCAL_STORAGE_KEY, createDefaultMemeConfig } from './lib/defaultTemplate';
 import { copyStageToClipboard, downloadStageImage } from './lib/exportImage';
 import type { MemeConfig } from './types';
+import localforage from 'localforage';
 
 interface NoticeState {
   type: 'error' | 'success';
@@ -22,21 +23,18 @@ function createExportFileName(title: string, extension: 'png' | 'jpg') {
   return `${base}.${extension}`;
 }
 
-function loadDraft(): MemeConfig {
+async function loadDraft(): Promise<MemeConfig> {
   const defaults = createDefaultMemeConfig();
 
   if (typeof window === 'undefined') {
     return defaults;
   }
 
-  const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+  const raw = await localforage.getItem(LOCAL_STORAGE_KEY);
 
-  if (!raw) {
-    return defaults;
-  }
 
   try {
-    const parsed = JSON.parse(raw) as MemeConfig;
+    const parsed = raw as MemeConfig;
 
     if (!parsed?.roles || parsed.roles.length !== 4 || !parsed.settings) {
       return defaults;
@@ -61,13 +59,28 @@ function loadDraft(): MemeConfig {
 
 export default function App() {
   const stageRef = useRef<Konva.Stage | null>(null);
-  const [config, setConfig] = useState<MemeConfig>(() => loadDraft());
+  const [config, setConfig] = useState<MemeConfig>(createDefaultMemeConfig());
   const [notice, setNotice] = useState<NoticeState | null>(null);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [pendingCrop, setPendingCrop] = useState<PendingCropState | null>(null);
 
+  // Async load logic runs ONCE when component mounts
   useEffect(() => {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(config));
+    // Create async function inside useEffect (can't make useEffect itself async)
+    const fetchDraft = async () => {
+      const draftConfig = await loadDraft();
+      setConfig(draftConfig); // Update state with the REAL config data
+    };
+
+    fetchDraft();
+  }, []); // Empty dependency array = run ONLY once on mount
+
+  useEffect(() => {
+    const saveToStorage = async () => {
+    // NO JSON.stringify NEEDED! localForage stores objects directly
+    await localforage.setItem(LOCAL_STORAGE_KEY, config);
+  };
+  saveToStorage();
   }, [config]);
 
   useEffect(() => {
